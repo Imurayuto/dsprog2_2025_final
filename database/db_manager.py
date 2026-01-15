@@ -285,80 +285,63 @@ class WeatherTrafficDatabase:
     
     # ========== 統合分析用メソッド ==========
     
-    def join_weather_traffic(self, 
-                           start_date: str, 
-                           end_date: str,
-                           location_name: Optional[str] = None) -> pd.DataFrame:
-        """
-        気象データと交通量データを結合
+    # 結合メソッドを上書き（一時的な対処）
+
+def join_weather_traffic_fixed(db, start_date, end_date, location_name=None):
+    """
+    気象データと交通量データを結合（修正版）
+    """
+    # 気象データ取得
+    weather_df = db.query_weather_by_date_range(start_date, end_date, location_name)
+    
+    # 交通量データ取得と日別集計
+    traffic_df = db.query_traffic_by_date_range(start_date, end_date)
+    
+    if len(traffic_df) == 0:
+        print("⚠️ 交通量データがありません")
+        return weather_df
+    
+    # 日別に集計
+    traffic_daily = traffic_df.groupby('date').agg({
+        'total_count': 'sum',
+        'travel_speed': 'mean'
+    }).reset_index()
+    
+    traffic_daily.columns = ['date', 'daily_total_count', 'avg_travel_speed']
+    
+    # 結合
+    merged = pd.merge(
+        weather_df,
+        traffic_daily,
+        on='date',
+        how='left'
+    )
+    
+    return merged
+
+    # 修正版で結合
+    print("🔗 修正版で結合テスト:")
+    merged_data = join_weather_traffic_fixed(db, '2023-01-01', '2023-01-31', '東京')
+
+    print(f"✅ 結合データ数: {len(merged_data)}件")
+    print(f"\n📊 結合データ:")
+    print(merged_data[['date', 'precipitation', 'avg_temp', 
+                    'daily_total_count', 'avg_travel_speed']].head(10))
+
+    # Noneの確認
+    none_count = merged_data['daily_total_count'].isna().sum()
+    print(f"\n⚠️ daily_total_countがNoneの件数: {none_count}件")
+
+    if none_count == 0:
+        print("✅ すべての日付で交通量データが結合されています！")
         
-        Args:
-            start_date: 開始日
-            end_date: 終了日
-            location_name: 地点名（Noneの場合は全地点）
-        
-        Returns:
-            結合されたDataFrame
-        """
-        if location_name:
-            query = '''
-            SELECT 
-                w.date,
-                w.location_name,
-                w.avg_temp,
-                w.max_temp,
-                w.min_temp,
-                w.precipitation,
-                w.max_wind_speed,
-                w.sunshine_hours,
-                w.avg_humidity,
-                t.daily_total_count,
-                t.avg_travel_speed
-            FROM weather w
-            LEFT JOIN (
-                SELECT 
-                    date,
-                    location_name,
-                    SUM(total_count) as daily_total_count,
-                    AVG(travel_speed) as avg_travel_speed
-                FROM traffic
-                GROUP BY date, location_name
-            ) t ON w.date = t.date AND w.location_name = t.location_name
-            WHERE w.date BETWEEN ? AND ?
-            AND w.location_name = ?
-            ORDER BY w.date
-            '''
-            params = (start_date, end_date, location_name)
-        else:
-            query = '''
-            SELECT 
-                w.date,
-                w.location_name,
-                w.avg_temp,
-                w.max_temp,
-                w.min_temp,
-                w.precipitation,
-                w.max_wind_speed,
-                w.sunshine_hours,
-                w.avg_humidity,
-                t.daily_total_count,
-                t.avg_travel_speed
-            FROM weather w
-            LEFT JOIN (
-                SELECT 
-                    date,
-                    location_name,
-                    SUM(total_count) as daily_total_count,
-                    AVG(travel_speed) as avg_travel_speed
-                FROM traffic
-                GROUP BY date, location_name
-            ) t ON w.date = t.date AND w.location_name = t.location_name
-            WHERE w.date BETWEEN ? AND ?
-            ORDER BY w.date
-            '''
-            params = (start_date, end_date)
-        
-        return pd.read_sql_query(query, self.conn, params=params)
+        # 統計情報
+        print(f"\n📈 統計:")
+        print(f"  降水量の平均: {merged_data['precipitation'].mean():.2f} mm")
+        print(f"  気温の平均: {merged_data['avg_temp'].mean():.2f} ℃")
+        print(f"  交通量の平均: {merged_data['daily_total_count'].mean():.0f} 台/日")
+    else:
+        print(f"⚠️ まだ{none_count}日分が結合されていません")
     
     def get_statistics(self) -> Dict[str, int]:
         """
